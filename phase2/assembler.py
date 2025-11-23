@@ -1,84 +1,43 @@
-import cv2
+# phase2/assembler.py
+import os
 import json
+import cv2
 import numpy as np
-from pathlib import Path
+from typing import List, Dict
+from phase2.solver import save_heatmap
 
-from .splitter import split_into_tiles
-from .layout import solve_layout
-from .features import extract_edge_strips
-
-
-class Assembler:
-    def __init__(self, phase1_dir: Path):
-        self.phase1_dir = phase1_dir
-
-        self.img_path = phase1_dir / "preprocessed.png"
-        self.meta_path = phase1_dir / "metadata.json"
-
-        if not self.img_path.exists():
-            raise RuntimeError(f"Missing preprocessed image: {self.img_path}")
-        if not self.meta_path.exists():
-            raise RuntimeError(f"Missing metadata: {self.meta_path}")
-
-        with open(self.meta_path) as f:
-            meta = json.load(f)
-
-        self.rows = meta["rows"]
-        self.cols = meta["cols"]
-
-        self.img = cv2.imread(str(self.img_path))
-        if self.img is None:
-            raise RuntimeError(f"Cannot read image: {self.img_path}")
-
-    def solve(self, out_dir: Path):
-        out_dir.mkdir(parents=True, exist_ok=True)
-
-        # -----------------------------
-        # 1. Split into tiles
-        # -----------------------------
-        tiles, coords = split_into_tiles(self.img, self.rows, self.cols)
-
-        # -----------------------------
-        # 2. Extract edge strips
-        # -----------------------------
-        tiles_edges = [extract_edge_strips(t) for t in tiles]
-
-        # -----------------------------
-        # 3. Solve layout
-        # -----------------------------
-        layout, adj_matrix = solve_layout(tiles_edges, self.rows, self.cols)
-
-        # -----------------------------
-        # 4. Assemble final image
-        # -----------------------------
-        tile_h = tiles[0].shape[0]
-        tile_w = tiles[0].shape[1]
-
-        final = np.zeros((self.rows * tile_h,
-                          self.cols * tile_w, 3), dtype=np.uint8)
-
-        for tile_idx, (r, c) in layout.items():
-            final[
-                r * tile_h:(r + 1) * tile_h,
-                c * tile_w:(c + 1) * tile_w
-            ] = tiles[tile_idx]
-
-        # -----------------------------
-        # 5. Save output
-        # -----------------------------
-        cv2.imwrite(str(out_dir / "assembled.png"), final)
-
-        with open(out_dir / "layout.json", "w") as f:
-            json.dump({int(k): [int(v[0]), int(v[1])] 
-                       for k, v in layout.items()}, f, indent=2)
-
-        # Save adjacency matrix for debugging
-        np.save(str(out_dir / "adj_matrix.npy"), adj_matrix)
-
-        # Save tiles
-        tiles_dir = out_dir / "tiles"
-        tiles_dir.mkdir(exist_ok=True)
-        for idx, tile in enumerate(tiles):
-            cv2.imwrite(str(tiles_dir / f"tile_{idx}.png"), tile)
-
-        print(f"[OK] Assembled puzzle saved in: {out_dir}")
+def assemble_and_save(tiles: List[Dict], placement: Dict, rows: int, cols: int, out_dir: str,
+                      H_sim=None, V_sim=None, global_sim=None):
+    os.makedirs(out_dir, exist_ok=True)
+    grid = placement["grid"]
+    first = tiles[0]["img"]
+    th, tw = first.shape[:2]
+    has_alpha = any(t["img"].ndim==3 and t["img"].shape[2]==4 for t in tiles)
+    canvas = np.zeros((th*rows, tw*cols, 4 if has_alpha else 3), dtype=first.dtype)
+    for r in range(rows):
+        for c in range(cols):
+            idx = grid[r][c]
+            if idx is None: continue
+            tile_img = tiles[int(idx)]["img"]
+            y0 = r*th; x0 = c*tw
+            if canvas.shape[2]==4 and (tile_img.ndim==3 and tile_img.shape[2]==3):
+                alpha = np.ones((tile_img.shape[0], tile_img.shape[1], 1), dtype=tile_img.dtype)*255
+                tile_img = np.concatenate([tile_img, alpha], axis=2)
+            if canvas.shape[2]==3 and tile_img.ndim==3 and tile_img.shape[2]==4:
+                tile_img = tile_img[:,:,:3]
+            canvas[y0:y0+th, x0:x0+tw] = tile_img
+    assembled_path = os.path.join(out_dir, "assembled.png")
+    cv2.imwrite(assembled_path, canvas)
+    placement_json = os.path.join(out_dir, "placement.json")
+    with open(placement_json, "w") as f:
+        json.dump(placement.get("placement_map", {}), f, indent=2)
+    report_path = os.path.join(out_dir, "placement_report.json")
+    with open(report_path, "w") as f:
+        json.dump({"weak_edges": placement.get("weak_edges", []), "backtracking_used": placement.get("backtracking_used", False)}, f, indent=2)
+    if H_sim is not None:
+        save_heatmap(H_sim, os.path.join(out_dir, "H_similarity_heatmap.png"), "H similarity")
+    if V_sim is not None:
+        save_heatmap(V_sim, os.path.join(out_dir, "V_similarity_heatmap.png"), "V similarity")
+    if global_sim is not None:
+        save_heatmap(global_sim, os.path.join(out_dir, "global_similarity_heatmap.png"), "Global similarity")
+    return {"assembled_path": assembled_path, "placement_json": placement_json, "report": report_path}
