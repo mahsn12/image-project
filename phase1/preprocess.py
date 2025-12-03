@@ -99,6 +99,10 @@ def preprocess_image(in_path: Path, out_path: Path, rows: int, cols: int):
             tile = enhanced[y1:y2, x1:x2].copy()
             if tile.shape[0] < MIN_TILE_SIDE or tile.shape[1] < MIN_TILE_SIDE:
                 continue
+            
+            # save the original enhanced tile BEFORE any segmentation or mask
+            orig_name = f"tile_{r:02d}_{c:02d}_orig.png"
+            cv2.imwrite(str(tiles_dir / orig_name), tile)
 
             # --- segmentation ---
             mask = segment_tile(tile, morph_kernel=MORPH_KERNEL, morph_min_area=MORPH_MIN_AREA)
