@@ -48,8 +48,8 @@ def ensure_clean_dir(p: Path):
 
 def preprocess_image(in_path: Path, out_path: Path, rows: int, cols: int):
     """
-    Deterministic tiling of the full image into rows x cols, after smart enhancement.
-    Also produces segmented masks per tile and isolates main puzzle piece.
+    Deterministic tiling: cut raw image first, THEN enhance and segment each tile.
+    This prevents enhancement artifacts from affecting tile boundaries.
     """
     img = cv2.imread(str(in_path))
     if img is None:
@@ -57,11 +57,8 @@ def preprocess_image(in_path: Path, out_path: Path, rows: int, cols: int):
 
     ensure_clean_dir(out_path)
 
-    # ---------- 1) Enhance full image ----------
-    enhanced = smart_enhance(img)
-    cv2.imwrite(str(out_path / "enhanced.png"), enhanced)
-
-    H, W = enhanced.shape[:2]
+    # ---------- 1) Get dimensions from RAW image (no enhancement yet) ----------
+    H, W = img.shape[:2]
 
     # ---------- 2) Compute tile sizes (deterministic grid) ----------
     base_w = W // cols
@@ -86,7 +83,7 @@ def preprocess_image(in_path: Path, out_path: Path, rows: int, cols: int):
     filenames = []
     saved = 0
 
-    # ---------- 3) Process each tile ----------
+    # ---------- 3) Process each tile: CUT FIRST, then enhance, then segment ----------
     for r in range(rows):
         for c in range(cols):
             x1 = x_offsets[c]
@@ -96,36 +93,44 @@ def preprocess_image(in_path: Path, out_path: Path, rows: int, cols: int):
             x2 = x1 + w_tile
             y2 = y1 + h_tile
 
-            tile = enhanced[y1:y2, x1:x2].copy()
-            if tile.shape[0] < MIN_TILE_SIDE or tile.shape[1] < MIN_TILE_SIDE:
+            # Cut from RAW image first
+            tile_raw = img[y1:y2, x1:x2].copy()
+            if tile_raw.shape[0] < MIN_TILE_SIDE or tile_raw.shape[1] < MIN_TILE_SIDE:
                 continue
             
-            # save the original enhanced tile BEFORE any segmentation or mask
-            orig_name = f"tile_{r:02d}_{c:02d}_orig.png"
-            cv2.imwrite(str(tiles_dir / orig_name), tile)
+            # NOW enhance this individual tile
+            tile = smart_enhance(tile_raw)
+            # Save the enhanced tile as the main output (no 'orig' in name)
+            # No longer save any '_orig.png' file
 
-            # --- segmentation ---
+            # --- segmentation on the enhanced tile ---
             mask = segment_tile(tile, morph_kernel=MORPH_KERNEL, morph_min_area=MORPH_MIN_AREA)
 
             # --- isolate main piece only ---
             mask = isolate_largest_component(mask, min_area=MORPH_MIN_AREA)
 
             # --- create clean tile (piece on white background) ---
-            clean_tile = np.full(tile.shape, 255, dtype=np.uint8)
-            clean_tile[mask == 255] = tile[mask == 255]
+            # Main output: just the enhanced tile (no mask, no white background)
+            main_tile = tile
+
+            # Inverse mask tile: piece area set to white, background untouched
+            inv_tile = tile.copy()
+            inv_tile[mask == 255] = 255
 
             # --- optional contour debug image ---
             if SAVE_DEBUG_CONTOURS:
                 cnts = extract_contours_from_mask(mask)
-                contour_img = draw_contours_on_image(clean_tile, cnts[:1])
+                contour_img = draw_contours_on_image(main_tile, cnts[:1])
             else:
                 contour_img = None
 
             tile_name = f"tile_{r:02d}_{c:02d}.png"
             mask_name = f"tile_{r:02d}_{c:02d}_mask.png"
-
-            cv2.imwrite(str(tiles_dir / tile_name), clean_tile)
+            inv_name = f"tile_{r:02d}_{c:02d}_inv.png"
+            # Save the enhanced tile (main output), mask, and inverse mask tile
+            cv2.imwrite(str(tiles_dir / tile_name), main_tile)
             cv2.imwrite(str(tiles_dir / mask_name), mask)
+            cv2.imwrite(str(tiles_dir / inv_name), inv_tile)
 
             if contour_img is not None:
                 cv2.imwrite(str(tiles_dir / f"tile_{r:02d}_{c:02d}_contours.png"), contour_img)

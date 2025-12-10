@@ -3,7 +3,7 @@ import numpy as np
 
 
 # ==========================
-# BASIC HELPERS (original)
+ # BASIC HELPERS
 # ==========================
 
 def apply_clahe(img_bgr, clipLimit=2.0, tileGridSize=(8, 8)):
@@ -89,12 +89,12 @@ def smart_enhance(img: np.ndarray) -> np.ndarray:
       2. CLAHE on L-channel (local contrast, no color damage)
       3. Guided filter (or small bilateral fallback)
       4. Soft unsharp mask (crisper edges, no halos)
-      5. Frequency fusion with original (keeps fine details)
+    5. Frequency fusion with details
 
     Returns: enhanced image with sharper edges & preserved details.
     """
 
-    original = img.copy()
+    original = img.copy()  # for frequency fusion
 
     # 1) DENOISE – bilateral to keep edges
     img = cv2.bilateralFilter(
@@ -129,7 +129,7 @@ def smart_enhance(img: np.ndarray) -> np.ndarray:
     blur = cv2.GaussianBlur(img, (0, 0), sigmaX=1.1)
     sharp = cv2.addWeighted(img, 1.12, blur, -0.12, 0)
 
-    # 5) Frequency fusion with original
+    # 5) Frequency fusion with details
     final = cv2.addWeighted(original, 0.55, sharp, 0.45, 0)
 
     return final
