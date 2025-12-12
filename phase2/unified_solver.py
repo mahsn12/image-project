@@ -567,7 +567,7 @@ class PuzzleSolver:
     
     def solve(self, time_limit: float = 60.0, beam_width: int = 50) -> Optional[Dict]:
         """
-        Solve puzzle using beam search first, then backtracking fallback (rotation fixed).
+        Solve puzzle using beam search (rotation fixed).
         Returns placement dict or None if no solution found.
         """
         print(f"  Solving {self.rows}x{self.cols} puzzle with {self.n} pieces...")
@@ -575,89 +575,20 @@ class PuzzleSolver:
         candidates = self._build_candidate_lists()
         start_time = time.time()
 
-        # 1) Beam search for a strong, fast solution
         beam_result = self._beam_search(
             beam_width=beam_width,
             time_limit=time_limit,
             start_time=start_time,
             candidates=candidates,
         )
-        if beam_result is not None:
-            return beam_result
-
-        remaining = time_limit - (time.time() - start_time)
-        if remaining <= 2.0:
-            print("  Beam search exhausted time; no solution found")
-            return None
-
-        # 2) Backtracking fallback (uses remaining time)
-        grid = [[-1] * self.cols for _ in range(self.rows)]
-        used = [False] * self.n
-        best_solution = {'grid': None, 'score': -np.inf}
-
-        def backtrack(pos: int, current_score: float) -> bool:
-            if time.time() - start_time > time_limit:
-                return False
-
-            if pos == self.rows * self.cols:
-                if current_score > best_solution['score']:
-                    best_solution['grid'] = [row[:] for row in grid]
-                    best_solution['score'] = current_score
-                    print(f"    Found solution with score: {current_score:.3f}")
-                return True
-
-            r = pos // self.cols
-            c = pos % self.cols
-
-            position_candidates = candidates.get((r, c), list(range(self.n)))
-
-            for tile_idx in position_candidates:
-                if used[tile_idx]:
-                    continue
-
-                score_delta = 0.0
-                if c > 0 and grid[r][c-1] != -1:
-                    score_delta += self.get_compatibility(grid[r][c-1], tile_idx, 'h')
-                if r > 0 and grid[r-1][c] != -1:
-                    score_delta += self.get_compatibility(grid[r-1][c], tile_idx, 'v')
-
-                if (c > 0 or r > 0) and score_delta < 0.1:
-                    if score_delta < 0.0:
-                        continue
-
-                grid[r][c] = tile_idx
-                used[tile_idx] = True
-
-                if backtrack(pos + 1, current_score + score_delta):
-                    if best_solution['grid'] is not None:
-                        pass
-
-                grid[r][c] = -1
-                used[tile_idx] = False
-
-            return best_solution['grid'] is not None
-
-        backtrack(0, 0.0)
-
+        
         elapsed = time.time() - start_time
-
-        if best_solution['grid'] is None:
+        if beam_result is None:
             print(f"  No solution found in {elapsed:.1f}s")
-            return None
-
-        print(f"  Solution found in {elapsed:.1f}s with score {best_solution['score']:.3f}")
-
-        placement = {}
-        for r in range(self.rows):
-            for c in range(self.cols):
-                placement[f"{r}_{c}"] = best_solution['grid'][r][c]
-
-        return {
-            'placement_map': placement,
-            'grid': best_solution['grid'],
-            'score': best_solution['score'],
-            'method': 'backtracking'
-        }
+        else:
+            print(f"  Solution found in {elapsed:.1f}s with score {beam_result['score']:.3f}")
+        
+        return beam_result
 
     def _beam_search(self, beam_width: int, time_limit: float, start_time: float, candidates: Dict) -> Optional[Dict]:
         """Beam search over placements; keeps top-K partial states per depth."""
