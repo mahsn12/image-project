@@ -514,14 +514,6 @@ class EdgeMatcher:
         # 5. NCC on border vectors
         ncc_score = self._ncc_1d_border(border1, border2)
         scores.append(ncc_score * w_ncc)
-
-        # 4. Histogram similarity (masked) - robust to lighting
-        hist_sim = self._masked_histogram_similarity(strip1, mask_strip1, strip2, mask_strip2, bins=16)
-        scores.append(hist_sim * w_hist)
-
-        # 5. NCC on border vectors
-        ncc_score = self._ncc_1d_border(border1, border2)
-        scores.append(ncc_score * w_ncc)
         
         # Combine but ensure overall normalization to [0,1]
         if not scores:
@@ -573,100 +565,179 @@ class PuzzleSolver:
         """Get cached compatibility score."""
         return self.compatibility_cache.get((tile1, tile2, direction), 0.0)
     
-    def solve(self, time_limit: float = 60.0) -> Optional[Dict]:
+    def solve(self, time_limit: float = 60.0, beam_width: int = 50) -> Optional[Dict]:
         """
-        Solve puzzle using backtracking with edge constraints.
+        Solve puzzle using beam search first, then backtracking fallback (rotation fixed).
         Returns placement dict or None if no solution found.
         """
         print(f"  Solving {self.rows}x{self.cols} puzzle with {self.n} pieces...")
-        
+
+        candidates = self._build_candidate_lists()
+        start_time = time.time()
+
+        # 1) Beam search for a strong, fast solution
+        beam_result = self._beam_search(
+            beam_width=beam_width,
+            time_limit=time_limit,
+            start_time=start_time,
+            candidates=candidates,
+        )
+        if beam_result is not None:
+            return beam_result
+
+        remaining = time_limit - (time.time() - start_time)
+        if remaining <= 2.0:
+            print("  Beam search exhausted time; no solution found")
+            return None
+
+        # 2) Backtracking fallback (uses remaining time)
         grid = [[-1] * self.cols for _ in range(self.rows)]
         used = [False] * self.n
-        
-        # Build candidate lists for each position
-        candidates = self._build_candidate_lists()
-        
-        start_time = time.time()
         best_solution = {'grid': None, 'score': -np.inf}
-        
+
         def backtrack(pos: int, current_score: float) -> bool:
             if time.time() - start_time > time_limit:
                 return False
-            
+
             if pos == self.rows * self.cols:
-                # Found complete solution
                 if current_score > best_solution['score']:
                     best_solution['grid'] = [row[:] for row in grid]
                     best_solution['score'] = current_score
                     print(f"    Found solution with score: {current_score:.3f}")
                 return True
-            
+
             r = pos // self.cols
             c = pos % self.cols
-            
-            # Get candidates for this position
+
             position_candidates = candidates.get((r, c), list(range(self.n)))
-            
+
             for tile_idx in position_candidates:
                 if used[tile_idx]:
                     continue
-                
-                # Check compatibility with neighbors
+
                 score_delta = 0.0
-                
-                # Left neighbor
                 if c > 0 and grid[r][c-1] != -1:
                     score_delta += self.get_compatibility(grid[r][c-1], tile_idx, 'h')
-                
-                # Top neighbor
                 if r > 0 and grid[r-1][c] != -1:
                     score_delta += self.get_compatibility(grid[r-1][c], tile_idx, 'v')
-                
-                # Early pruning: if compatibility is too low, skip
+
                 if (c > 0 or r > 0) and score_delta < 0.1:
                     if score_delta < 0.0:
                         continue
-                
-                # Place tile
+
                 grid[r][c] = tile_idx
                 used[tile_idx] = True
-                
-                # Recurse
+
                 if backtrack(pos + 1, current_score + score_delta):
                     if best_solution['grid'] is not None:
-                        # Found a solution, continue to find better ones
                         pass
-                
-                # Backtrack
+
                 grid[r][c] = -1
                 used[tile_idx] = False
-            
+
             return best_solution['grid'] is not None
-        
-        # Start solving
+
         backtrack(0, 0.0)
-        
+
         elapsed = time.time() - start_time
-        
+
         if best_solution['grid'] is None:
             print(f"  No solution found in {elapsed:.1f}s")
-            # Return greedy solution
-            return self._greedy_solve()
-        else:
-            print(f"  Solution found in {elapsed:.1f}s with score {best_solution['score']:.3f}")
-            
-            # Convert grid to placement dict
-            placement = {}
-            for r in range(self.rows):
-                for c in range(self.cols):
-                    placement[f"{r}_{c}"] = best_solution['grid'][r][c]
-            
-            return {
-                'placement_map': placement,
-                'grid': best_solution['grid'],
-                'score': best_solution['score'],
-                'method': 'backtracking'
-            }
+            return None
+
+        print(f"  Solution found in {elapsed:.1f}s with score {best_solution['score']:.3f}")
+
+        placement = {}
+        for r in range(self.rows):
+            for c in range(self.cols):
+                placement[f"{r}_{c}"] = best_solution['grid'][r][c]
+
+        return {
+            'placement_map': placement,
+            'grid': best_solution['grid'],
+            'score': best_solution['score'],
+            'method': 'backtracking'
+        }
+
+    def _beam_search(self, beam_width: int, time_limit: float, start_time: float, candidates: Dict) -> Optional[Dict]:
+        """Beam search over placements; keeps top-K partial states per depth."""
+        total_cells = self.rows * self.cols
+        initial_state = {
+            'grid': [-1] * total_cells,
+            'used': [False] * self.n,
+            'score': 0.0,
+            'pos': 0,
+        }
+
+        beam = [initial_state]
+        best_complete = None
+
+        while beam:
+            if time.time() - start_time > time_limit:
+                break
+
+            pos = beam[0]['pos']
+            if pos == total_cells:
+                # All states complete at this depth
+                best_state = max(beam, key=lambda s: s['score'])
+                best_complete = best_state
+                break
+
+            r = pos // self.cols
+            c = pos % self.cols
+            next_beam = []
+            position_candidates = candidates.get((r, c), list(range(self.n)))
+
+            for state in beam:
+                if time.time() - start_time > time_limit:
+                    break
+
+                used = state['used']
+                grid = state['grid']
+
+                for tile_idx in position_candidates:
+                    if used[tile_idx]:
+                        continue
+
+                    score_delta = 0.0
+                    if c > 0 and grid[pos - 1] != -1:
+                        score_delta += self.get_compatibility(grid[pos - 1], tile_idx, 'h')
+                    if r > 0 and grid[pos - self.cols] != -1:
+                        score_delta += self.get_compatibility(grid[pos - self.cols], tile_idx, 'v')
+
+                    new_grid = grid[:]
+                    new_grid[pos] = tile_idx
+                    new_used = used[:]
+                    new_used[tile_idx] = True
+
+                    next_beam.append({
+                        'grid': new_grid,
+                        'used': new_used,
+                        'score': state['score'] + score_delta,
+                        'pos': pos + 1,
+                    })
+
+            if not next_beam:
+                break
+
+            next_beam.sort(key=lambda s: s['score'], reverse=True)
+            beam = next_beam[:beam_width]
+
+        if best_complete is None:
+            return None
+
+        placement = {}
+        grid = best_complete['grid']
+        for r in range(self.rows):
+            for c in range(self.cols):
+                placement[f"{r}_{c}"] = grid[r * self.cols + c]
+
+        return {
+            'placement_map': placement,
+            'grid': [grid[i*self.cols:(i+1)*self.cols] for i in range(self.rows)],
+            'score': best_complete['score'],
+            'method': 'beam'
+        }
     
     def _build_candidate_lists(self) -> Dict:
         """Build ordered candidate lists for each position."""
@@ -695,45 +766,3 @@ class PuzzleSolver:
                 candidates[(r, c)] = [tile_idx for _, tile_idx in scores]
         
         return candidates
-    
-    def _greedy_solve(self) -> Dict:
-        """Fallback greedy solver."""
-        print("  Falling back to greedy solver...")
-        
-        grid = [[-1] * self.cols for _ in range(self.rows)]
-        used = [False] * self.n
-        
-        for r in range(self.rows):
-            for c in range(self.cols):
-                best_tile = -1
-                best_score = -np.inf
-                
-                for tile_idx in range(self.n):
-                    if used[tile_idx]:
-                        continue
-                    
-                    score = 0.0
-                    if c > 0 and grid[r][c-1] != -1:
-                        score += self.get_compatibility(grid[r][c-1], tile_idx, 'h')
-                    if r > 0 and grid[r-1][c] != -1:
-                        score += self.get_compatibility(grid[r-1][c], tile_idx, 'v')
-                    
-                    if score > best_score:
-                        best_score = score
-                        best_tile = tile_idx
-                
-                if best_tile != -1:
-                    grid[r][c] = best_tile
-                    used[best_tile] = True
-        
-        placement = {}
-        for r in range(self.rows):
-            for c in range(self.cols):
-                placement[f"{r}_{c}"] = grid[r][c]
-        
-        return {
-            'placement_map': placement,
-            'grid': grid,
-            'score': 0.0,
-            'method': 'greedy'
-        }
