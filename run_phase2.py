@@ -131,24 +131,11 @@ def process_one(phase1_root, group, image, out_root, time_limit):
         score = result.get('score', 0.0)
         method = result.get('method', 'unknown')
         
-        output_dir = Path(out_root) / group / image
+        output_dir = Path(out_root) / group
         output_dir.mkdir(parents=True, exist_ok=True)
-        
-        assembled_path = output_dir / "assembled.png"
+
+        assembled_path = output_dir / f"{image}.png"
         assemble_puzzle(tiles, placement, rows, cols, str(assembled_path))
-        
-        with open(output_dir / "placement.json", 'w') as f:
-            json.dump(placement, f, indent=2)
-        
-        report = {
-            'method': method,
-            'score': float(score),
-            'rows': rows,
-            'cols': cols,
-            'num_tiles': len(tiles)
-        }
-        with open(output_dir / "placement_report.json", 'w') as f:
-            json.dump(report, f, indent=2)
         
         print(f"[{group}/{image}] SUCCESS - Score: {score:.3f}, Method: {method}")
         return True
