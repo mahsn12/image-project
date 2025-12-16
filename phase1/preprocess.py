@@ -20,15 +20,17 @@ from .utils import (
     smart_enhance,
     segment_tile,
     isolate_largest_component,
-    extract_contours_from_mask,
-    draw_contours_on_image,
+    fill_mask_holes,
+    remove_small_specks,
+    refine_mask_edges,
+    enhance_mask_with_lab,
 )
 
 # configuration
 MIN_TILE_SIDE = 8
 MORPH_KERNEL = 5
 MORPH_MIN_AREA = 300
-SAVE_DEBUG_CONTOURS = True
+SAVE_DEBUG_CONTOURS = False
 
 
 def detect_grid_from_folder(folder_name: str):
@@ -99,41 +101,38 @@ def preprocess_image(in_path: Path, out_path: Path, rows: int, cols: int):
                 continue
             
             # NOW enhance this individual tile
-            tile = smart_enhance(tile_raw)
+            # Calculate average tile size for adaptive parameter scaling
+            avg_tile_size = (w_tile + h_tile) // 2
+            
+            tile = smart_enhance(tile_raw, tile_size=avg_tile_size)
             # Save the enhanced tile as the main output (no 'orig' in name)
             # No longer save any '_orig.png' file
 
             # --- segmentation on the enhanced tile ---
-            mask = segment_tile(tile, morph_kernel=MORPH_KERNEL, morph_min_area=MORPH_MIN_AREA)
+            mask = segment_tile(tile, morph_kernel=MORPH_KERNEL, morph_min_area=MORPH_MIN_AREA, tile_size=avg_tile_size)
 
             # --- isolate main piece only ---
-            mask = isolate_largest_component(mask, min_area=MORPH_MIN_AREA)
+            mask = isolate_largest_component(mask, min_area=MORPH_MIN_AREA, tile_size=avg_tile_size)
 
-            # --- create clean tile (piece on white background) ---
-            # Main output: just the enhanced tile (no mask, no white background)
-            main_tile = tile
+            # --- comprehensive mask refinement pipeline ---
+            # 1) Fill holes inside the piece
+            mask = fill_mask_holes(mask, min_hole_size=100, tile_size=avg_tile_size)
+            
+            # 2) Remove small noise specks
+            mask = remove_small_specks(mask, min_area=50, tile_size=avg_tile_size)
+            
+            # 3) Refine edges to avoid hard boundaries
+            mask = refine_mask_edges(mask, kernel_size=3, tile_size=avg_tile_size)
+            
+            # 4) Optional: enhance using LAB for lighting-robust refinement
+            mask = enhance_mask_with_lab(tile, mask, tile_size=avg_tile_size)
 
-            # Inverse mask tile: piece area set to white, background untouched
-            inv_tile = tile.copy()
-            inv_tile[mask == 255] = 255
-
-            # --- optional contour debug image ---
-            if SAVE_DEBUG_CONTOURS:
-                cnts = extract_contours_from_mask(mask)
-                contour_img = draw_contours_on_image(main_tile, cnts[:1])
-            else:
-                contour_img = None
+            # Main output: enhanced tile and refined binary mask
 
             tile_name = f"tile_{r:02d}_{c:02d}.png"
             mask_name = f"tile_{r:02d}_{c:02d}_mask.png"
-            inv_name = f"tile_{r:02d}_{c:02d}_inv.png"
-            # Save the enhanced tile (main output), mask, and inverse mask tile
-            cv2.imwrite(str(tiles_dir / tile_name), main_tile)
+            cv2.imwrite(str(tiles_dir / tile_name), tile)
             cv2.imwrite(str(tiles_dir / mask_name), mask)
-            cv2.imwrite(str(tiles_dir / inv_name), inv_tile)
-
-            if contour_img is not None:
-                cv2.imwrite(str(tiles_dir / f"tile_{r:02d}_{c:02d}_contours.png"), contour_img)
 
             filenames.append(tile_name)
             saved += 1
@@ -143,14 +142,12 @@ def preprocess_image(in_path: Path, out_path: Path, rows: int, cols: int):
         "source": str(in_path),
         "rows": int(rows),
         "cols": int(cols),
-        "bbox": [0, 0, W, H],
         "num_tiles_saved": int(saved),
         "tile_sizes": {
             "row_heights": [int(h) for h in cell_hs],
             "col_widths": [int(w) for w in cell_ws],
         },
         "tile_filenames": filenames,
-        "trim_info": {name: (0, 0, 0, 0) for name in filenames},  # no trimming yet
     }
 
     with open(out_path / "metadata.json", "w") as f:

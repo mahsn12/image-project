@@ -61,12 +61,18 @@ def load_tiles_from_phase1(source_root: str, category: str, identifier: str) -> 
         # Ensure mask is 0/255 and sanitize
         mask = (mask > 0).astype(np.uint8) * 255
         # Sanitize masks: morphological clean + remove small components
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        # Scale kernel size based on image size
+        avg_size = (mask.shape[0] + mask.shape[1]) // 2
+        scale = avg_size / 112.0
+        kernel_size = max(2, int(3 * scale))
+        if kernel_size % 2 == 0:
+            kernel_size += 1
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=1)
-        # Remove tiny connected components
+        # Remove tiny connected components (scaled by area)
         contours, _ = cv2.findContours(mask.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        min_area = max(20, (mask.shape[0] * mask.shape[1]) // 1000)
+        min_area = max(10, (mask.shape[0] * mask.shape[1]) // 1000)
         clean_mask = np.zeros_like(mask)
         for c in contours:
             if cv2.contourArea(c) >= min_area:

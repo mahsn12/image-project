@@ -18,10 +18,14 @@ class EdgeMatcher:
         self.n = len(tiles)
         self.edge_features = {}  # (tile_idx, direction) -> features (currently unused)
         # Contour-based features are disabled to avoid bad edge splits; pixel match drives scoring
-        # Matching config: can be tuned
-        self.strip_width = 14
+        # Matching config: adapt to tile size
+        # Ratios are relative to the relevant tile dimension
+        self.strip_ratio = 0.10        # ~10% of min relevant dimension
+        self.min_strip_px = 2          # lower bound in pixels
+        self.mask_dilate_ratio = 0.03  # ~3% of min dimension
+        self.min_mask_dilate_px = 1    # lower bound in pixels
+        # Unused parameter previously; kept for future use if needed
         self.min_overlap_pixels = 6
-        self.mask_dilate_px = 2
         # scoring weights (sum should be close to 1.0)
         self.w_border = 0.35
         self.w_masked_color = 0.25
@@ -75,7 +79,10 @@ class EdgeMatcher:
         # Use Harris or Shi-Tomasi corner detection on the mask to find 4 corners
         mask = np.zeros(shape, dtype=np.uint8)
         cv2.drawContours(mask, [contour], -1, 255, -1)
-        corners = cv2.goodFeaturesToTrack(mask, maxCorners=4, qualityLevel=0.01, minDistance=10)
+        # Corner detection distance scaled to tile size
+        min_dim = min(shape[0], shape[1])
+        min_dist = max(3, int(0.05 * min_dim))
+        corners = cv2.goodFeaturesToTrack(mask, maxCorners=4, qualityLevel=0.01, minDistance=min_dist)
         if corners is not None and len(corners) == 4:
             corners = np.array([c[0] for c in corners], dtype=np.int32)
         else:
@@ -380,10 +387,14 @@ class EdgeMatcher:
         h1, w1 = img1.shape[:2]
         h2, w2 = img2.shape[:2]
         
-        # Use config from self (tunable)
-        strip_width = self.strip_width
+        # Adaptive config derived from tile sizes
+        if dir1 in ['right', 'left']:
+            base_dim = min(w1, w2)
+        else:
+            base_dim = min(h1, h2)
+        strip_width = max(self.min_strip_px, int(round(self.strip_ratio * base_dim)))
+        mask_dilate_px = max(self.min_mask_dilate_px, int(round(self.mask_dilate_ratio * min(h1, h2, w1, w2))))
         min_overlap_pixels = self.min_overlap_pixels
-        mask_dilate_px = self.mask_dilate_px
         w_border = self.w_border
         w_masked_color = self.w_masked_color
         w_hist = self.w_hist
@@ -486,7 +497,9 @@ class EdgeMatcher:
         masked_similarity = 0.0
         if masked_diff.size > 0:
             avg_diff = masked_diff.mean()
-            masked_similarity = np.exp(-avg_diff / 40.0)  # 40 is tolerance
+            # Scale tolerance by local variability; ensure sensible lower bound
+            local_scale = float(max(10.0, 2.0 * np.std(masked_diff)))
+            masked_similarity = np.exp(-avg_diff / local_scale)
             scores.append(masked_similarity * w_masked_color)
         
         # 3. Gradient continuity (edges should flow smoothly)
@@ -504,7 +517,12 @@ class EdgeMatcher:
             grad2 = cv2.Sobel(gray2, cv2.CV_32F, 0, 1, ksize=3)
         
         grad_diff = np.abs(grad1 - grad2)
-        grad_score = np.exp(-grad_diff[valid_mask].mean() / 20.0) if np.any(valid_mask) else 0.2
+        if np.any(valid_mask):
+            grad_mean = float(grad_diff[valid_mask].mean())
+            grad_scale = float(max(5.0, 2.0 * np.std(grad_diff[valid_mask])))
+            grad_score = np.exp(-grad_mean / grad_scale)
+        else:
+            grad_score = 0.2
         scores.append(grad_score * w_grad)
 
         # 4. Histogram similarity (masked) - robust to lighting
