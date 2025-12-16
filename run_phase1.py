@@ -2,6 +2,8 @@
 from pathlib import Path
 import sys
 import json
+import os
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 # --- Locate project root and ensure phase1 is importable ---
 current_file = Path(__file__).resolve()
@@ -18,6 +20,27 @@ dataset_root_path = project_root / "dataset_images"
 output_root_path  = project_root / "phase1_outputs"
 # -----------------------------------------------------------
 
+def _process_one(image_path: Path, input_dataset_path: Path, output_base_path: Path):
+    folder_name = image_path.parent.name
+    grid_rows, grid_cols = detect_grid_from_folder(folder_name)
+    if grid_rows is None:
+        return ("skip", image_path, None, None, None)
+
+    relative_path = image_path.parent.relative_to(input_dataset_path)
+    output_directory = output_base_path / relative_path / image_path.stem
+
+    output_path, metadata = preprocess_image(image_path, output_directory, grid_rows, grid_cols)
+
+    saved_tile_count = metadata.get("num_pieces_saved", None)
+    if saved_tile_count is None:
+        saved_tile_count = metadata.get("num_tiles_saved", None)
+    if saved_tile_count is None:
+        saved_tile_count = "unknown"
+
+    detected_tile_count = metadata.get("num_pieces_detected", metadata.get("num_tiles_detected", "unknown"))
+    return ("done", image_path, output_path, detected_tile_count, saved_tile_count)
+
+
 def run_all_phase1(input_dataset_path: Path, output_base_path: Path):
     input_dataset_path = Path(input_dataset_path)
     output_base_path = Path(output_base_path)
@@ -28,36 +51,27 @@ def run_all_phase1(input_dataset_path: Path, output_base_path: Path):
         print("[ERROR] No images found in:", input_dataset_path)
         return
 
-    for image_path in image_file_list:
-        folder_name = image_path.parent.name
-        grid_rows, grid_cols = detect_grid_from_folder(folder_name)
-        if grid_rows is None:
-            print(f"[SKIP] {image_path}  (folder doesn't contain 2x2/4x4/8x8)")
-            continue
+    max_workers = max(1, os.cpu_count() or 1)
+    print(f"[INFO] Using {max_workers} workers for Phase 1")
 
-        relative_path = image_path.parent.relative_to(input_dataset_path)
-        output_directory = output_base_path / relative_path / image_path.stem
+    with ProcessPoolExecutor(max_workers=max_workers) as ex:
+        futures = {
+            ex.submit(_process_one, image_path, input_dataset_path, output_base_path): image_path
+            for image_path in image_file_list
+        }
 
-        print(f"[PHASE1] Processing: {image_path}")
-        output_path, metadata = preprocess_image(image_path, output_directory, grid_rows, grid_cols)
-
-        # tolerant reading of saved-count key (supports both old/new preprocess versions)
-        saved_tile_count = metadata.get("num_pieces_saved", None)
-        if saved_tile_count is None:
-            saved_tile_count = metadata.get("num_tiles_saved", None)
-
-        # if still None, dump meta for debugging
-        if saved_tile_count is None:
-            print("[WARN] metadata missing expected keys. Full metadata:")
+        for fut in as_completed(futures):
             try:
-                print(json.dumps(metadata, indent=2))
-            except Exception:
-                print(metadata)
-            saved_tile_count = "unknown"
+                status, image_path, output_path, detected_tile_count, saved_tile_count = fut.result()
+            except Exception as exc:  # surface worker failures without killing the pool
+                image_path = futures[fut]
+                print(f"[ERROR] {image_path} failed: {exc}")
+                continue
 
-        detected_tile_count = metadata.get("num_pieces_detected", metadata.get("num_tiles_detected", "unknown"))
-
-        print(f"[DONE] -> {output_path} | detected={detected_tile_count} saved={saved_tile_count}")
+            if status == "skip":
+                print(f"[SKIP] {image_path} (folder doesn't contain 2x2/4x4/8x8)")
+                continue
+            print(f"[DONE] -> {output_path} | detected={detected_tile_count} saved={saved_tile_count}")
 
 if __name__ == "__main__":
     print("[INFO] Running Phase 1")

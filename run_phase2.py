@@ -14,6 +14,7 @@ import json
 import traceback
 import cv2
 import numpy as np
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
 from phase2.features import load_tiles_from_phase1
@@ -165,13 +166,38 @@ def main():
     print("Phase 2: Contour-Based Puzzle Solver")
     print("=" * 70)
     
+    tasks = [
+        (group, image)
+        for group in iter_groups(args.phase1_root, args.group)
+        for image in iter_images(args.phase1_root, group, args.image)
+    ]
+
+    if not tasks:
+        print("[WARN] No puzzles found to process.")
+        return
+
+    max_workers = max(1, os.cpu_count() or 1)
+    print(f"[INFO] Using {max_workers} workers for Phase 2")
+
     successes = 0
     failures = 0
-    
-    for group in iter_groups(args.phase1_root, args.group):
-        for image in iter_images(args.phase1_root, group, args.image):
-            print(f"\n{'-' * 70}")
-            success = process_one(args.phase1_root, group, image, args.out_dir, args.time_limit)
+
+    with ProcessPoolExecutor(max_workers=max_workers) as ex:
+        futures = {
+            ex.submit(process_one, args.phase1_root, group, image, args.out_dir, args.time_limit): (group, image)
+            for (group, image) in tasks
+        }
+
+        for fut in as_completed(futures):
+            group, image = futures[fut]
+            try:
+                success = fut.result()
+            except Exception as exc:  # surface worker failures without killing the pool
+                print(f"[{group}/{image}] ERROR - {exc}")
+                traceback.print_exc()
+                failures += 1
+                continue
+
             if success:
                 successes += 1
             else:
