@@ -1,11 +1,11 @@
-# run_phase1.py  (project root)
+# run_phase1.py (project root)
 from pathlib import Path
 import sys
 import json
 import os
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
-# --- Locate project root and ensure phase1 is importable ---
+# Project root discovery so imports work when executed from elsewhere
 current_file = Path(__file__).resolve()
 project_root = current_file.parent
 phase1_directory = project_root / "phase1"
@@ -15,7 +15,7 @@ if str(project_root) not in sys.path:
 # Import the preprocess functions
 from phase1.preprocess import preprocess_image, detect_grid_from_folder
 
-# ---- Hard-coded dataset / output paths (edit if needed) ----
+# Hard-coded dataset / output paths (edit if needed)
 dataset_root_path = project_root / "dataset_images"
 output_root_path  = project_root / "phase1_outputs"
 # -----------------------------------------------------------
@@ -29,7 +29,12 @@ def _process_one(image_path: Path, input_dataset_path: Path, output_base_path: P
     relative_path = image_path.parent.relative_to(input_dataset_path)
     output_directory = output_base_path / relative_path / image_path.stem
 
-    output_path, metadata = preprocess_image(image_path, output_directory, grid_rows, grid_cols)
+    output_path, metadata = preprocess_image(
+        image_path,
+        output_directory,
+        grid_rows,
+        grid_cols,
+    )
 
     saved_tile_count = metadata.get("num_pieces_saved", None)
     if saved_tile_count is None:

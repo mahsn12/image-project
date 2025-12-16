@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-Run Phase 2 contour-based solver on entire dataset.
+Run the Phase 2 contour-based solver across the dataset.
 
 Usage:
     python run_phase2.py                              # Run all puzzles
     python run_phase2.py --group puzzle_2x2           # Run all 2x2 puzzles
-    python run_phase2.py --group puzzle_4x4 --image 5 # Run single puzzle
+    python run_phase2.py --group puzzle_4x4 --image 5 # Run a single puzzle
 """
 
 import argparse
@@ -28,7 +28,9 @@ def parse_args():
     parser.add_argument("--group", required=False, help="Puzzle group (e.g., puzzle_2x2). If omitted, runs all groups")
     parser.add_argument("--image", required=False, help="Image ID. If omitted, runs all images")
     parser.add_argument("--time_limit", type=float, default=60.0, help="Time limit per puzzle (seconds)")
+    parser.add_argument("--dataset_root", default="dataset_images", help="Raw dataset directory (used to run Phase 1 on demand)")
     return parser.parse_args()
+from run_phase1 import run_all_phase1
 
 
 def infer_grid_size(group_name: str):
@@ -158,7 +160,14 @@ def main():
         for group in iter_groups(args.phase1_root, args.group)
         for image in iter_images(args.phase1_root, group, args.image)
     ]
-
+    if not tasks:
+        print("[INFO] Phase 1 outputs not found for requested puzzles; running Phase 1 now...")
+        run_all_phase1(Path(args.dataset_root), Path(args.phase1_root))
+        tasks = [
+            (group, image)
+            for group in iter_groups(args.phase1_root, args.group)
+            for image in iter_images(args.phase1_root, group, args.image)
+        ]
     if not tasks:
         print("[WARN] No puzzles found to process.")
         return

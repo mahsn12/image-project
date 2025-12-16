@@ -1,6 +1,6 @@
 """
-Unified puzzle solver that mirrors puzzle_solver.py's best-buddies pipeline
-but operates on Phase 1 tiles (with optional masks) for this dataset.
+Unified best-buddies puzzle solver that runs on Phase 1 tiles.
+Mirrors puzzle_solver.py while keeping compatibility with the dataset layout.
 """
 
 from typing import List, Dict, Tuple, Optional
@@ -15,16 +15,8 @@ from collections import deque
 # Border extraction (LAB + gradients)
 # ----------------------------
 def _prepare_tile_image(tile: Dict) -> np.ndarray:
-    """Return tile image with background whitened using mask when available."""
-    img = tile["img"]
-    mask = tile.get("mask")
-    if mask is None:
-        return img
-    if mask.ndim == 3:
-        mask = cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY)
-    prepared = img.copy()
-    prepared[mask == 0] = 255
-    return prepared
+    """Return tile image (mask-free path)."""
+    return tile["img"]
 
 
 def _extract_borders(piece: np.ndarray, strip_width: int = 1) -> Dict[int, np.ndarray]:
@@ -371,7 +363,7 @@ def _solve_bruteforce(pieces: List[np.ndarray], compat: Dict[int, np.ndarray], g
 class PuzzleSolver:
     """Best-buddies puzzle solver adapted for Phase 1 tiles."""
 
-    def __init__(self, tiles: List[Dict], rows: int, cols: int, strip_width: int = 1, seeds: int = 5, shifter_iters: int = 8):
+    def __init__(self, tiles: List[Dict], rows: int, cols: int, strip_width: int = 1, seeds: Optional[int] = None, shifter_iters: int = 8, beam_width: Optional[int] = None):
         self.tiles = tiles
         self.rows = rows
         self.cols = cols
@@ -380,19 +372,30 @@ class PuzzleSolver:
             raise ValueError(f"Grid {rows}x{cols} doesn't match {self.n} tiles")
         self.grid_n = rows
         self.strip_width = strip_width
-        self.seeds = seeds
+        if seeds is None:
+            # Dynamic seed counts by grid size
+            self.seeds = {2: 5, 4: 10, 8: 20}.get(self.grid_n, 10)
+        else:
+            self.seeds = seeds
         self.shifter_iters = shifter_iters
+        if beam_width is None:
+            # Dynamic beam widths by grid size
+            self.beam_width = {2: 1, 4: 3, 8: 5}.get(self.grid_n, 3)
+        else:
+            self.beam_width = max(1, beam_width)
         self.pieces = [_prepare_tile_image(t) for t in tiles]
 
     def solve(self, time_limit: float = 60.0, beam_width: int = 0) -> Optional[Dict]:  # beam_width kept for API compatibility
         start = time.time()
         compat = _build_compatibility(self.pieces, strip_width=self.strip_width)
+        effective_beam = beam_width if beam_width > 0 else self.beam_width
 
         if self.grid_n == 2:
             order, _ = _solve_bruteforce(self.pieces, compat, self.grid_n)
             placement = order
             best_bb = _compute_best_buddies_score(order, self.grid_n, compat)
         else:
+            candidates = []
             best_placement = None
             best_bb = -1.0
             seed_id = 0
@@ -402,10 +405,34 @@ class PuzzleSolver:
                 placement_after_shifter, bb_sh = _shifter(init_placement, self.grid_n, compat, max_iters=self.shifter_iters)
                 final_placement = placement_after_shifter if bb_sh >= bb0 else init_placement
                 final_bb = bb_sh if bb_sh >= bb0 else bb0
+                candidates.append((final_bb, final_placement))
                 if final_bb > best_bb:
                     best_bb = final_bb
                     best_placement = final_placement
                 seed_id += 1
+
+            # For harder puzzles, try a few extra seeds if the score stays low
+            if best_bb < 0.60 and (time.time() - start) < time_limit:
+                extra_seeds = 5
+                for _ in range(extra_seeds):
+                    if (time.time() - start) >= time_limit:
+                        break
+                    init_placement = _placer(self.n, self.grid_n, compat, seed_placement=None)
+                    bb0 = _compute_best_buddies_score(init_placement, self.grid_n, compat)
+                    placement_after_shifter, bb_sh = _shifter(init_placement, self.grid_n, compat, max_iters=self.shifter_iters)
+                    final_placement = placement_after_shifter if bb_sh >= bb0 else init_placement
+                    final_bb = bb_sh if bb_sh >= bb0 else bb0
+                    candidates.append((final_bb, final_placement))
+                    if final_bb > best_bb:
+                        best_bb = final_bb
+                        best_placement = final_placement
+
+            # Beam pick: keep the top-N scored placements and pick the best
+            if candidates:
+                candidates.sort(key=lambda x: x[0], reverse=True)
+                candidates = candidates[:effective_beam]
+                best_bb, best_placement = candidates[0]
+
             placement = best_placement if best_placement is not None else init_placement
 
         placement_map = {}
