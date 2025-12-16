@@ -39,14 +39,6 @@ def smart_enhance(img: np.ndarray, tile_size: int = None) -> np.ndarray:
         sigmaSpace=40
     )
 
-    # 2) CLAHE on luminance only
-    lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
-    l, a, b = cv2.split(lab)
-
-    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(clahe_grid_size, clahe_grid_size))
-    l2 = clahe.apply(l)
-
-    img = cv2.cvtColor(cv2.merge((l2, a, b)), cv2.COLOR_LAB2BGR)
 
     # 3) Edge-preserving smoothing (guided filter if available)
     try:
