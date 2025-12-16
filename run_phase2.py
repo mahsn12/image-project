@@ -173,6 +173,9 @@ def main():
         return
 
     max_workers = max(1, os.cpu_count() or 1)
+    # If launched via run_all, keep two CPUs free (one for system, one for on-demand re-solve)
+    if os.environ.get("RUN_ALL_CONTEXT"):
+        max_workers = max(1, max_workers - 2)
     print(f"[INFO] Using {max_workers} workers for Phase 2")
 
     successes = 0

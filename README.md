@@ -343,11 +343,14 @@ phase2_outputs/
 - **Smart ordering**: Puzzles grouped by image ID first, then grid size (compare same image across difficulties)
 - **Dynamic loading**: Shows "Loading..." for incomplete data; auto-updates when ready
 - **Refresh**: Force re-scan of available puzzles
+ - **Jump-to**: Pick grid (2x2/4x4/8x8) and image ID, then click Go to jump directly
+ - **Re-solve**: Delete current solved image and recompute if needed
 
 ### Controls
 ```
-[Refresh Puzzles]  [Solve Current]
-[< Previous]  [Next >]  [Solve & Next]
+[Refresh Puzzles]                                     Grid: [puzzle_2x2|4x4|8x8]  Image ID: [   ] [Go]
+
+[< Previous]   [Next >]   [Resolve (redo)]
 
 Image counter: n/total
 Status: Ready/Loading/Solving

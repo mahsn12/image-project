@@ -65,7 +65,9 @@ def run_phase2():
     print("Running Phase 2: Puzzle Solving")
     print("="*60)
     try:
-        subprocess.run([sys.executable, "run_phase2.py"], check=True)
+        env = os.environ.copy()
+        env["RUN_ALL_CONTEXT"] = "1"  # leave two CPUs free while run_all is active
+        subprocess.run([sys.executable, "run_phase2.py"], check=True, env=env)
         print("Phase 2 completed successfully!")
     except subprocess.CalledProcessError as e:
         print(f"Phase 2 failed with error: {e}")

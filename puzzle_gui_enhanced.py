@@ -31,10 +31,12 @@ class EnhancedPuzzleGUI:
         self.current_idx = 0
         self.phase1_root = "phase1_outputs"
         self.out_dir = "phase2_outputs"
+        self.groups_order = ["puzzle_2x2", "puzzle_4x4", "puzzle_8x8"]
         
         # State
         self.solving = False
         self.current_tiles = None
+        self.current_result = None
         
         self.setup_ui()
         self.scan_puzzles()
@@ -46,13 +48,25 @@ class EnhancedPuzzleGUI:
         control_frame.pack(side=tk.TOP, fill=tk.X, padx=10, pady=10)
         
         ttk.Button(control_frame, text="Refresh Puzzles", command=self.scan_puzzles).pack(side=tk.LEFT, padx=5)
-        ttk.Button(control_frame, text="Solve Current", command=self.solve_current).pack(side=tk.LEFT, padx=5)
         
         self.status_label = ttk.Label(control_frame, text="Ready", relief=tk.SUNKEN)
         self.status_label.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
-        
+
+        # Jump-to controls (top-right area)
         self.counter_label = ttk.Label(control_frame, text="0/0")
         self.counter_label.pack(side=tk.RIGHT, padx=5)
+
+        ttk.Button(control_frame, text="Go", command=self.goto_puzzle).pack(side=tk.RIGHT, padx=5)
+
+        self.image_var = tk.StringVar(value="0")
+        image_entry = ttk.Entry(control_frame, textvariable=self.image_var, width=6)
+        image_entry.pack(side=tk.RIGHT, padx=5)
+        ttk.Label(control_frame, text="Image ID:").pack(side=tk.RIGHT)
+
+        self.grid_var = tk.StringVar(value=self.groups_order[0])
+        grid_box = ttk.Combobox(control_frame, textvariable=self.grid_var, values=self.groups_order, width=12, state="readonly")
+        grid_box.pack(side=tk.RIGHT, padx=5)
+        ttk.Label(control_frame, text="Grid:").pack(side=tk.RIGHT)
         
         # Main content area
         content_frame = ttk.Frame(self.root)
@@ -85,7 +99,7 @@ class EnhancedPuzzleGUI:
         
         ttk.Button(nav_frame, text="< Previous", command=self.previous_puzzle).pack(side=tk.LEFT, padx=5)
         ttk.Button(nav_frame, text="Next >", command=self.next_puzzle).pack(side=tk.LEFT, padx=5)
-        ttk.Button(nav_frame, text="Solve & Next", command=self.solve_and_next).pack(side=tk.LEFT, padx=5)
+        ttk.Button(nav_frame, text="Resolve (redo)", command=self.resolve_current).pack(side=tk.LEFT, padx=5)
         
     def scan_puzzles(self):
         """
@@ -115,7 +129,7 @@ class EnhancedPuzzleGUI:
                     images_by_group[group_dir].append(item)
         
         # Now organize by image number first, then by group
-        groups_order = ["puzzle_2x2", "puzzle_4x4", "puzzle_8x8"]
+        groups_order = self.groups_order
         
         # Find max image ID
         max_image_id = 0
@@ -205,10 +219,12 @@ class EnhancedPuzzleGUI:
             img = cv2.imread(solved_path)
             if img is not None:
                 self.show_image_on_canvas(self.canvas_after, img)
+                self.current_result = img
                 return
         
         # No solved image yet, show loading placeholder
         self.show_loading_image(self.canvas_after, "Loading solution...")
+        self.current_result = None
     
     def show_loading_image(self, canvas, text: str):
         """Show a loading message on canvas."""
@@ -239,9 +255,10 @@ class EnhancedPuzzleGUI:
             canvas_h = 600
         
         h, w = cv_image.shape[:2]
-        scale = min(canvas_w / w, canvas_h / h, 1.0)
-        new_w = int(w * scale)
-        new_h = int(h * scale)
+        # Fill the box almost fully; allow gentle upscaling
+        scale = min(canvas_w / w, canvas_h / h) * 0.98
+        new_w = max(1, int(w * scale))
+        new_h = max(1, int(h * scale))
         
         img_resized = cv2.resize(cv_image, (new_w, new_h))
         img_rgb = cv2.cvtColor(img_resized, cv2.COLOR_BGR2RGB)
@@ -313,6 +330,19 @@ class EnhancedPuzzleGUI:
         thread = threading.Thread(target=self._solve_worker)
         thread.daemon = True
         thread.start()
+
+    def goto_puzzle(self):
+        """Jump to a specific puzzle by grid and image id."""
+        target_group = self.grid_var.get()
+        target_image = self.image_var.get().strip()
+        if not target_image:
+            self.update_status("Enter an image id")
+            return
+        if (target_group, target_image) in self.puzzles:
+            self.current_idx = self.puzzles.index((target_group, target_image))
+            self.display_puzzle()
+            return
+        self.update_status(f"Not found: {target_group}/{target_image}")
     
     def _solve_worker(self):
         """Worker thread for solving puzzle."""
@@ -388,15 +418,23 @@ class EnhancedPuzzleGUI:
         finally:
             self.solving = False
     
-    def solve_and_next(self):
-        """Solve current and move to next."""
-        if not self.current_tiles:
-            self.next_puzzle()
+    def resolve_current(self):
+        """Delete current solved image and re-run solver for this puzzle."""
+        if not self.puzzles:
             return
-        
         if self.solving:
+            self.update_status("Already solving...")
             return
-        
+        group, image_id = self.puzzles[self.current_idx]
+        solved_path = os.path.join(self.out_dir, group, f"{image_id}.png")
+        try:
+            if os.path.exists(solved_path):
+                os.remove(solved_path)
+        except Exception as e:
+            self.update_status(f"Could not delete old result: {e}")
+        # reset display state
+        self.current_result = None
+        self.show_loading_image(self.canvas_after, "Re-solving...")
         self.solve_current()
     
     def next_puzzle(self):
