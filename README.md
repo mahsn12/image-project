@@ -133,20 +133,16 @@ Input Image
     └─ Preserves edges while smoothing textures
     └─ cv2.bilateralFilter(d=9, sigmaColor=40, sigmaSpace=40)
     ↓
-[2] CLAHE (Contrast Limited Adaptive Histogram Equalization)
-    └─ Enhances local contrast on L channel (LAB color space)
-    └─ Prevents edge over-enhancement via clip limit
-    ↓
-[3] Guided Filtering (or Bilateral Fallback)
+[2] Guided Filtering (or Bilateral Fallback)
     └─ Smooth without blur while preserving edges
     └─ Uses tile itself as guide
     └─ radius=8, eps=1e-2
     ↓
-[4] Soft Unsharp Masking
+[3] Soft Unsharp Masking
     └─ Crisp edges without halos
     └─ addWeighted(img, 1.12, blur, -0.12)
     ↓
-[5] Frequency Fusion
+[4] Frequency Fusion
     └─ Blend original (55%) + enhanced (45%)
     └─ Retains detail while keeping enhancement subtle
     ↓
@@ -155,7 +151,6 @@ Output: Enhanced Tile
 
 **Justification**:
 - **Bilateral denoising**: Classic edge-preserving technique from computer vision (Tomasi & Manduchi, 1998)
-- **CLAHE**: Prevents over-enhancement at tile edges that could cause false matches
 - **Guided filter**: Advanced edge-preserving smoothing (He et al., 2010) better than Gaussian blur
 - **Unsharp masking**: Standard technique to enhance local contrast
 - **Frequency fusion**: Prevents over-enhancement by blending with original; avoids artificial artifacts that fool edge matchers
@@ -343,18 +338,12 @@ phase2_outputs/
 - **Smart ordering**: Puzzles grouped by image ID first, then grid size (compare same image across difficulties)
 - **Dynamic loading**: Shows "Loading..." for incomplete data; auto-updates when ready
 - **Refresh**: Force re-scan of available puzzles
- - **Jump-to**: Pick grid (2x2/4x4/8x8) and image ID, then click Go to jump directly
- - **Re-solve**: Delete current solved image and recompute if needed
 
-### Controls
-```
-[Refresh Puzzles]                                     Grid: [puzzle_2x2|4x4|8x8]  Image ID: [   ] [Go]
 
-[< Previous]   [Next >]   [Resolve (redo)]
-
-Image counter: n/total
-Status: Ready/Loading/Solving
-```
+### Screenshots
+- 2x2 puzzle example: ![2x2 Demo](assets/2x2%20Demo.png)
+- 4x4 puzzle example: ![4x4 Demo](assets/4x4%20Demo.png)
+- 8x8 puzzle example: ![8x8 Demo](assets/8x8%20Demo.png)
 
 ### Technical Stack
 - **tkinter**: GUI framework (built-in, cross-platform)
@@ -398,7 +387,6 @@ Status: Ready/Loading/Solving
 ### Why Adaptive Enhancement Parameters?
 Large tiles (4x4, 8x8) have different texture scales than small tiles (2x2):
 - Bilateral filter radius scales with tile size
-- CLAHE grid size adapts to avoid over-segmentation
 - Guided filter radius matches tile structure
 → Same code works well across 2x2, 4x4, 8x8 without per-size tuning
 
@@ -431,9 +419,6 @@ Default: **K=5** candidate states per iteration
    
 4. **Guided Filter** - He, Sun, Tang (2010) "Guided Image Filtering"
    - Advanced edge-preserving smoothing
-   
-5. **CLAHE** - Pizer et al. (1987) "Adaptive Histogram Equalization and Its Variations"
-   - Local contrast enhancement while controlling over-enhancement
 
 ### Standard Computer Vision Techniques
 - **Sobel/Laplacian operators**: Gradient detection (standard edge detection)
@@ -452,6 +437,7 @@ Default: **K=5** candidate states per iteration
 - "No puzzles found": ensure `dataset_images/` is populated and folders contain `2x2`, `4x4`, or `8x8` in their names. Phase 2 will attempt to generate missing Phase 1 outputs automatically.
 - "Cannot read image": verify image paths and permissions under `dataset_images/`.
 - **GUI not launching**: Ensure tkinter is installed (built-in on Windows/Mac; on Linux run `sudo apt-get install python3-tk`).
+- **Puzzle solving varies**: Due to random seed initialization in beam search, results may differ slightly between runs. Re-running the solver on the same puzzle may yield different (but equally valid) solutions.
 
 ## Testing
 ```bash
