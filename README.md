@@ -1,6 +1,6 @@
 # Image Puzzle Project
 
-Two-phase pipeline to cut source images into grid tiles (Phase 1) and reassemble them with a contour-based best-buddies solver (Phase 2).
+Two-phase pipeline to cut source images into grid tiles (Phase 1) and reassemble them with a mask-free, border-based best-buddies solver (Phase 2).
 
 ## Setup
 1. Install Python 3.10+.
@@ -26,8 +26,12 @@ Outputs per image:
 - `tiles/tile_rr_cc.png` (enhanced tile)
 - `metadata.json` (grid, tile sizes, filenames)
 
-## Phase 2: solver (auto-runs Phase 1 if needed)
-Loads Phase 1 tiles, estimates placement with a best-buddies solver, and saves the assembled image. If Phase 1 outputs are missing for the requested puzzles, Phase 2 will first run Phase 1 using `--dataset_root` and then continue.
+## How it works (at a glance)
+- Phase 1: detects grid shape from folder name, splits the source image into an exact grid, applies `smart_enhance` (bilateral + CLAHE + guided/bilateral fallback + soft unsharp), and saves tiles plus `metadata.json` describing sizes and filenames.
+- Phase 2: loads tiles (prefers metadata order), infers grid from the group name, computes border features per tile (LAB + gradients/laplacian), and runs a best-buddies + beam-search solver with dynamic seeding and width to place tiles. If no Phase 1 outputs exist for the requested scope, it runs Phase 1 first using `--dataset_root`, then assembles the solved image to `phase2_outputs`.
+
+## Phase 2: solver (limited auto-run for Phase 1)
+Loads Phase 1 tiles, estimates placement with a mask-free best-buddies solver, and saves the assembled image. If *no* Phase 1 outputs exist for the requested scope, Phase 2 will first run Phase 1 using `--dataset_root` and then continue. It does not currently backfill individual missing puzzles if some outputs are present.
 
 Common invocations:
 ```bash
