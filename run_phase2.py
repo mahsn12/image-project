@@ -1,16 +1,8 @@
 #!/usr/bin/env python3
-"""
-Run the Phase 2 contour-based solver across the dataset.
-
-Usage:
-    python run_phase2.py                              # Run all puzzles
-    python run_phase2.py --group puzzle_2x2           # Run all 2x2 puzzles
-    python run_phase2.py --group puzzle_4x4 --image 5 # Run a single puzzle
-"""
+# Run Phase 2 contour-based solver across dataset
 
 import argparse
 import os
-import json
 import traceback
 import cv2
 import numpy as np
@@ -22,6 +14,7 @@ from phase2.unified_solver import PuzzleSolver
 
 
 def parse_args():
+    # Parse command line arguments for puzzle solver
     parser = argparse.ArgumentParser(description="Run contour-based puzzle solver on dataset")
     parser.add_argument("--phase1_root", default="phase1_outputs", help="Phase 1 outputs directory")
     parser.add_argument("--out_dir", default="phase2_outputs", help="Output directory")
@@ -34,7 +27,7 @@ from run_phase1 import run_all_phase1
 
 
 def infer_grid_size(group_name: str):
-    """Infer rows and cols from group name."""
+    # Determine grid dimensions from group name
     if '2x2' in group_name.lower():
         return 2, 2
     elif '4x4' in group_name.lower():
@@ -45,7 +38,7 @@ def infer_grid_size(group_name: str):
 
 
 def assemble_puzzle(tiles, placement, rows, cols, output_path):
-    """Assemble tiles into final image."""
+    # Assemble solved puzzle tiles into final image
     sizes = [(t['img'].shape[0], t['img'].shape[1]) for t in tiles]
     size_counts = {}
     for s in sizes:
@@ -79,7 +72,7 @@ def assemble_puzzle(tiles, placement, rows, cols, output_path):
 
 
 def iter_groups(root_path, specific=None):
-    """Iterate over puzzle groups."""
+    # Iterate over puzzle groups
     if specific:
         yield specific
         return
@@ -92,7 +85,7 @@ def iter_groups(root_path, specific=None):
 
 
 def iter_images(root_path, group_name, specific=None):
-    """Iterate over images in a group."""
+    # Iterate over images in a group
     group_path = os.path.join(root_path, group_name)
     if specific:
         if os.path.isdir(os.path.join(group_path, specific, "tiles")):
@@ -109,7 +102,7 @@ def iter_images(root_path, group_name, specific=None):
 
 
 def process_one(phase1_root, group, image, out_root, time_limit):
-    """Process a single puzzle."""
+    # Process single puzzle: load tiles, solve, and save result
     try:
         rows, cols = infer_grid_size(group)
         if rows is None:
@@ -149,6 +142,7 @@ def process_one(phase1_root, group, image, out_root, time_limit):
 
 
 def main():
+    # Main entry point: process all puzzles or specific ones
     args = parse_args()
     
     print("=" * 70)
@@ -173,7 +167,7 @@ def main():
         return
 
     max_workers = max(1, os.cpu_count() or 1)
-    # If launched via run_all, keep two CPUs free (one for system, one for on-demand re-solve)
+    # Reserve CPUs if launched from run_all
     if os.environ.get("RUN_ALL_CONTEXT"):
         max_workers = max(1, max_workers - 2)
     print(f"[INFO] Using {max_workers} workers for Phase 2")
@@ -191,7 +185,7 @@ def main():
             group, image = futures[fut]
             try:
                 success = fut.result()
-            except Exception as exc:  # surface worker failures without killing the pool
+            except Exception as exc:
                 print(f"[{group}/{image}] ERROR - {exc}")
                 traceback.print_exc()
                 failures += 1

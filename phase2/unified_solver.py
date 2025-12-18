@@ -1,8 +1,3 @@
-"""
-Unified best-buddies puzzle solver that runs on Phase 1 tiles.
-Mirrors puzzle_solver.py while keeping compatibility with the dataset layout.
-"""
-
 from typing import List, Dict, Tuple, Optional
 import cv2
 import numpy as np
@@ -11,20 +6,19 @@ from itertools import permutations
 from collections import deque
 
 
-# ----------------------------
-# Border extraction (LAB + gradients)
-# ----------------------------
 def _prepare_tile_image(tile: Dict) -> np.ndarray:
-    """Return tile image (mask-free path)."""
+    # Extract image from tile dictionary
     return tile["img"]
 
 
 def _extract_borders(piece: np.ndarray, strip_width: int = 1) -> Dict[int, np.ndarray]:
+    # Extract borders from each side (top, right, bottom, left) with gradient info
     lab = cv2.cvtColor(piece, cv2.COLOR_BGR2LAB).astype(np.float32)
     h, w = lab.shape[:2]
     sw = min(strip_width, h // 2, w // 2)
 
     def make_grad_patch_enhanced(patch_lab: np.ndarray) -> np.ndarray:
+        # Create feature patch with color, gradient, and laplacian
         patch_bgr = cv2.cvtColor(patch_lab.astype(np.uint8), cv2.COLOR_LAB2BGR).astype(np.float32)
         patch_gray = cv2.cvtColor(patch_bgr.astype(np.uint8), cv2.COLOR_BGR2GRAY).astype(np.float32)
         patch_gray = cv2.GaussianBlur(patch_gray, (3, 3), 0)
@@ -44,6 +38,7 @@ def _extract_borders(piece: np.ndarray, strip_width: int = 1) -> Dict[int, np.nd
 
 
 def _normalize_strip_2d(strip: np.ndarray) -> np.ndarray:
+    # Normalize each channel to zero mean and unit variance
     arr = strip.astype(np.float32)
     for ch in range(arr.shape[2]):
         m, sd = arr[..., ch].mean(), arr[..., ch].std()
@@ -63,6 +58,7 @@ def _border_distance_2d(
     w_grad_dir: float = 0.2,
     w_lap: float = 0.4,
 ) -> float:
+    # Calculate distance between two borders using color and gradient features
     def orient(strip: np.ndarray, side: int) -> np.ndarray:
         return _normalize_strip_2d(np.transpose(strip, (1, 0, 2)) if side in (1, 3) else strip)
 
@@ -84,6 +80,7 @@ def _border_distance_2d(
 
 
 def _build_compatibility(pieces: List[np.ndarray], strip_width: int = 1) -> Dict[int, np.ndarray]:
+    # Build compatibility matrix for all piece pairs across all sides
     n = len(pieces)
     borders = [_extract_borders(p, strip_width) for p in pieces]
     compat = {s: np.full((n, n), 1e9, dtype=np.float32) for s in range(4)}
@@ -100,14 +97,17 @@ def _build_compatibility(pieces: List[np.ndarray], strip_width: int = 1) -> Dict
 
 
 def _opposite(side: int) -> int:
+    # Get opposite side (0->2, 1->3, 2->0, 3->1)
     return (side + 2) % 4
 
 
 def _best_partner_for(i: int, side: int, compat: Dict[int, np.ndarray]) -> int:
+    # Find best matching piece for given piece and side
     return int(np.argmin(compat[side][i]))
 
 
 def _is_best_buddy(i: int, side: int, j: int, compat: Dict[int, np.ndarray]) -> bool:
+    # Check if two pieces are best buddies (mutually best partners)
     if i == j:
         return False
     bj = _best_partner_for(i, side, compat)
@@ -118,14 +118,13 @@ def _is_best_buddy(i: int, side: int, j: int, compat: Dict[int, np.ndarray]) -> 
     return bi == i
 
 
-# ----------------------------
-# Placement helpers
-# ----------------------------
 def _placer(n: int, grid_n: int, compat: Dict[int, np.ndarray], seed_placement=None, seed_center: bool = True):
+    # Place pieces on grid starting from seed and filling remaining slots
     placement = [-1] * n
     used = [False] * n
 
     if seed_placement:
+        # Position seed pieces in center or top-left
         seed_pos = list(seed_placement.keys())
         rs = [p // grid_n for p in seed_pos]
         cs = [p % grid_n for p in seed_pos]
@@ -144,12 +143,14 @@ def _placer(n: int, grid_n: int, compat: Dict[int, np.ndarray], seed_placement=N
                 placement[pos_new] = pid
                 used[pid] = True
     else:
+        # Start with random seed piece
         seed_pid = np.random.randint(0, n)
         seed_pos = np.random.choice(range(n))
         placement[seed_pos] = seed_pid
         used[seed_pid] = True
 
     def get_neighbors(pos: int):
+        # Get filled neighbors of empty position
         r, c = pos // grid_n, pos % grid_n
         neighbors = []
         if r > 0 and placement[pos - grid_n] != -1:
@@ -164,6 +165,7 @@ def _placer(n: int, grid_n: int, compat: Dict[int, np.ndarray], seed_placement=N
 
     slots_filled = sum(1 for x in placement if x != -1)
     while slots_filled < n:
+        # Fill empty slots starting with most constrained positions
         empty_slots = []
         for pos in range(n):
             if placement[pos] != -1:
@@ -179,6 +181,7 @@ def _placer(n: int, grid_n: int, compat: Dict[int, np.ndarray], seed_placement=N
         chosen = None
 
         for _, slot_pos, neighs in empty_slots:
+            # Prioritize pieces with best buddy matches
             candidates = []
             for pid in range(n):
                 if used[pid]:
@@ -198,6 +201,7 @@ def _placer(n: int, grid_n: int, compat: Dict[int, np.ndarray], seed_placement=N
                 break
 
         if chosen is None:
+            # Fallback: pick piece with lowest average compatibility
             _, slot_pos, neighs = empty_slots[0]
             best_val = 1e18
             best_pid = None
@@ -223,11 +227,13 @@ def _placer(n: int, grid_n: int, compat: Dict[int, np.ndarray], seed_placement=N
 
 
 def _segmenter(placement: List[int], grid_n: int, compat: Dict[int, np.ndarray]):
+    # Find connected components of pieces linked by best buddy relationships
     n_slots = len(placement)
     visited = [False] * n_slots
     segments = []
 
     def neighbors(pos: int):
+        # Get neighboring positions (up, down, left, right)
         r = pos // grid_n
         c = pos % grid_n
         if c > 0:
@@ -240,6 +246,7 @@ def _segmenter(placement: List[int], grid_n: int, compat: Dict[int, np.ndarray])
             yield pos + grid_n, 2
 
     for pos in range(n_slots):
+        # BFS to find connected components
         if visited[pos]:
             continue
         queue = deque([pos])
@@ -262,6 +269,7 @@ def _segmenter(placement: List[int], grid_n: int, compat: Dict[int, np.ndarray])
 
 
 def _compute_best_buddies_score(placement: List[int], grid_n: int, compat: Dict[int, np.ndarray]) -> float:
+    # Calculate fraction of edges that are best buddy pairs
     n_slots = len(placement)
     bb_count = 0
     total_adj = 0
@@ -287,11 +295,13 @@ def _compute_best_buddies_score(placement: List[int], grid_n: int, compat: Dict[
 
 
 def _shifter(initial_placement: List[int], grid_n: int, compat: Dict[int, np.ndarray], max_iters: int = 8, swap_pass: bool = True):
+    # Improve placement by re-solving segments and swapping pieces
     n_slots = len(initial_placement)
     current = initial_placement.copy()
     best_score = _compute_best_buddies_score(current, grid_n, compat)
 
     for _ in range(max_iters):
+        # Find connected best buddy segments
         segments = _segmenter(current, grid_n, compat)
         if not segments:
             break
@@ -301,6 +311,7 @@ def _shifter(initial_placement: List[int], grid_n: int, compat: Dict[int, np.nda
         for seg in segments:
             if not seg:
                 continue
+            # Re-place segment pieces
             seed_map = {pos: current[pos] for pos in seg}
             placement_new = _placer(n_slots, grid_n, compat, seed_placement=seed_map)
             score_new = _compute_best_buddies_score(placement_new, grid_n, compat)
@@ -311,6 +322,7 @@ def _shifter(initial_placement: List[int], grid_n: int, compat: Dict[int, np.nda
                 break
 
         if not improved and swap_pass:
+            # Try swapping piece positions
             for pos1 in range(n_slots):
                 for pos2 in range(pos1 + 1, n_slots):
                     new_p = current.copy()
@@ -331,6 +343,7 @@ def _shifter(initial_placement: List[int], grid_n: int, compat: Dict[int, np.nda
 
 
 def _solve_bruteforce(pieces: List[np.ndarray], compat: Dict[int, np.ndarray], grid_n: int):
+    # Exhaustive search for small grids (2x2)
     n = grid_n * grid_n
     best_perm = None
     best_score = 1e12
@@ -361,7 +374,7 @@ def _solve_bruteforce(pieces: List[np.ndarray], compat: Dict[int, np.ndarray], g
 
 
 class PuzzleSolver:
-    """Best-buddies puzzle solver adapted for Phase 1 tiles."""
+    # Solve puzzle using best-buddies algorithm with multiple seeded attempts
 
     def __init__(self, tiles: List[Dict], rows: int, cols: int, strip_width: int = 1, seeds: Optional[int] = None, shifter_iters: int = 8, beam_width: Optional[int] = None):
         self.tiles = tiles
@@ -372,29 +385,32 @@ class PuzzleSolver:
             raise ValueError(f"Grid {rows}x{cols} doesn't match {self.n} tiles")
         self.grid_n = rows
         self.strip_width = strip_width
+        # Adaptive seed count based on grid size
         if seeds is None:
-            # Dynamic seed counts by grid size
             self.seeds = {2: 5, 4: 10, 8: 20}.get(self.grid_n, 10)
         else:
             self.seeds = seeds
         self.shifter_iters = shifter_iters
+        # Adaptive beam width based on grid size
         if beam_width is None:
-            # Dynamic beam widths by grid size
             self.beam_width = {2: 1, 4: 3, 8: 5}.get(self.grid_n, 3)
         else:
             self.beam_width = max(1, beam_width)
         self.pieces = [_prepare_tile_image(t) for t in tiles]
 
-    def solve(self, time_limit: float = 60.0, beam_width: int = 0) -> Optional[Dict]:  # beam_width kept for API compatibility
+    def solve(self, time_limit: float = 60.0, beam_width: int = 0) -> Optional[Dict]:
+        # Solve puzzle with multiple attempts and return best placement
         start = time.time()
         compat = _build_compatibility(self.pieces, strip_width=self.strip_width)
         effective_beam = beam_width if beam_width > 0 else self.beam_width
 
         if self.grid_n == 2:
+            # Use brute force for 2x2 puzzles
             order, _ = _solve_bruteforce(self.pieces, compat, self.grid_n)
             placement = order
             best_bb = _compute_best_buddies_score(order, self.grid_n, compat)
         else:
+            # Try multiple seeds with shifting refinement
             candidates = []
             best_placement = None
             best_bb = -1.0
@@ -411,8 +427,8 @@ class PuzzleSolver:
                     best_placement = final_placement
                 seed_id += 1
 
-            # For harder puzzles, try a few extra seeds if the score stays low
-            if best_bb < 0.60 and (time.time() - start) < time_limit:
+            # Try extra seeds for difficult puzzles
+            if best_bb < 0.60 or (time.time() - start) < time_limit:
                 extra_seeds = 5
                 for _ in range(extra_seeds):
                     if (time.time() - start) >= time_limit:
@@ -427,7 +443,7 @@ class PuzzleSolver:
                         best_bb = final_bb
                         best_placement = final_placement
 
-            # Beam pick: keep the top-N scored placements and pick the best
+            # Keep top candidates and select best
             if candidates:
                 candidates.sort(key=lambda x: x[0], reverse=True)
                 candidates = candidates[:effective_beam]
@@ -435,6 +451,7 @@ class PuzzleSolver:
 
             placement = best_placement if best_placement is not None else init_placement
 
+        # Convert placement to string keys
         placement_map = {}
         for pos, pid in enumerate(placement):
             r = pos // self.grid_n

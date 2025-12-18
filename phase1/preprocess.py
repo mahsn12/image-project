@@ -1,15 +1,3 @@
-"""
-Phase 1: deterministic grid tiling that mirrors puzzle_solver.py preprocessing.
-
-The image is cut into an exact grid (2x2, 4x4, 8x8 inferred from folder name),
-each tile gets light enhancement, and the outputs are saved as:
-    - tiles/tile_r_c.png (enhanced tile)
-    - metadata.json      (grid shape, tile sizes, filenames)
-
-No contour segmentation is attempted; Phase 2 keeps the same cues as the
-best-buddies edge matcher.
-"""
-
 from pathlib import Path
 import cv2
 import json
@@ -36,11 +24,7 @@ def ensure_clean_dir(p: Path):
 
 
 def preprocess_image(in_path: Path, out_path: Path, rows: int, cols: int):
-    """
-    Deterministic grid cutting + light enhancement, no contour segmentation.
-    Mirrors puzzle_solver.py preprocessing so Phase 2 uses identical cues.
-    """
-
+    # Read image and prepare output directory
     img = cv2.imread(str(in_path))
     if img is None:
         raise RuntimeError(f"Cannot read image: {in_path}")
@@ -49,7 +33,7 @@ def preprocess_image(in_path: Path, out_path: Path, rows: int, cols: int):
 
     H, W = img.shape[:2]
 
-    # Compute deterministic cell sizes (handles non-divisible dimensions)
+    # Calculate tile dimensions accounting for remainder pixels
     base_w = W // cols
     rem_w = W % cols
     cell_ws = [base_w + (1 if c < rem_w else 0) for c in range(cols)]
@@ -58,6 +42,7 @@ def preprocess_image(in_path: Path, out_path: Path, rows: int, cols: int):
     rem_h = H % rows
     cell_hs = [base_h + (1 if r < rem_h else 0) for r in range(rows)]
 
+    # Calculate offsets for tile extraction
     x_offsets = [0]
     for w_c in cell_ws[:-1]:
         x_offsets.append(x_offsets[-1] + w_c)
@@ -66,6 +51,7 @@ def preprocess_image(in_path: Path, out_path: Path, rows: int, cols: int):
     for h_r in cell_hs[:-1]:
         y_offsets.append(y_offsets[-1] + h_r)
 
+    # Extract and save tiles
     tiles_dir = out_path / "tiles"
     tiles_dir.mkdir(parents=True, exist_ok=True)
 
@@ -74,6 +60,7 @@ def preprocess_image(in_path: Path, out_path: Path, rows: int, cols: int):
 
     for r in range(rows):
         for c in range(cols):
+            # Extract tile region from image
             x1 = x_offsets[c]
             y1 = y_offsets[r]
             w_tile = cell_ws[c]
@@ -85,6 +72,7 @@ def preprocess_image(in_path: Path, out_path: Path, rows: int, cols: int):
             if tile_raw.shape[0] < MIN_TILE_SIDE or tile_raw.shape[1] < MIN_TILE_SIDE:
                 continue
 
+            # Enhance and save tile
             avg_tile_size = (w_tile + h_tile) // 2
             tile_enh = smart_enhance(tile_raw, tile_size=avg_tile_size)
 
@@ -94,6 +82,7 @@ def preprocess_image(in_path: Path, out_path: Path, rows: int, cols: int):
             filenames.append(tile_name)
             saved += 1
 
+    # Save metadata with tile information
     meta = {
         "source": str(in_path),
         "rows": int(rows),

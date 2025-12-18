@@ -5,22 +5,22 @@ import json
 import os
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
-# Project root discovery so imports work when executed from elsewhere
+# Setup project path for imports
 current_file = Path(__file__).resolve()
 project_root = current_file.parent
 phase1_directory = project_root / "phase1"
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-# Import the preprocess functions
+# Import preprocessing functions
 from phase1.preprocess import preprocess_image, detect_grid_from_folder
 
-# Hard-coded dataset / output paths (edit if needed)
+# Configure dataset and output paths
 dataset_root_path = project_root / "dataset_images"
 output_root_path  = project_root / "phase1_outputs"
-# -----------------------------------------------------------
 
 def _process_one(image_path: Path, input_dataset_path: Path, output_base_path: Path):
+    # Process single image: detect grid, extract and enhance tiles
     folder_name = image_path.parent.name
     grid_rows, grid_cols = detect_grid_from_folder(folder_name)
     if grid_rows is None:
@@ -47,6 +47,7 @@ def _process_one(image_path: Path, input_dataset_path: Path, output_base_path: P
 
 
 def run_all_phase1(input_dataset_path: Path, output_base_path: Path):
+    # Process all images in dataset with multi-processing
     input_dataset_path = Path(input_dataset_path)
     output_base_path = Path(output_base_path)
     output_base_path.mkdir(parents=True, exist_ok=True)
@@ -68,7 +69,7 @@ def run_all_phase1(input_dataset_path: Path, output_base_path: Path):
         for fut in as_completed(futures):
             try:
                 status, image_path, output_path, detected_tile_count, saved_tile_count = fut.result()
-            except Exception as exc:  # surface worker failures without killing the pool
+            except Exception as exc:
                 image_path = futures[fut]
                 print(f"[ERROR] {image_path} failed: {exc}")
                 continue

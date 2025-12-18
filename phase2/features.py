@@ -1,24 +1,16 @@
-# phase2/features.py
-# Tile loader (mask-free).
-
 import os
 import cv2
 from typing import List, Dict
 import re
 import json
 
-# ==================== TILE LOADER ====================
-
 def load_tiles_from_phase1(source_root: str, category: str, identifier: str) -> List[Dict]:
-    """
-    Load tiles from Phase 1 outputs.
-    Looks for: tile_{r:02d}_{c:02d}.png (enhanced tile)
-    """
+    # Load enhanced tiles from Phase 1 output directory
     resource_dir = os.path.join(source_root, category, identifier, "tiles")
     if not os.path.isdir(resource_dir):
         raise FileNotFoundError(f"Tiles directory not found: {resource_dir}")
 
-    # Read metadata if present
+    # Read metadata if available
     metadata_path = os.path.join(source_root, category, identifier, "metadata.json")
     meta = {}
     if os.path.exists(metadata_path):
@@ -29,7 +21,7 @@ def load_tiles_from_phase1(source_root: str, category: str, identifier: str) -> 
             meta = {}
 
     def _load_one(img_path):
-        """Load a single tile image."""
+        # Load single tile image with format conversion
         img = cv2.imread(img_path, cv2.IMREAD_UNCHANGED)
         if img is None:
             return None
@@ -39,7 +31,7 @@ def load_tiles_from_phase1(source_root: str, category: str, identifier: str) -> 
         base = os.path.basename(img_path)[:-4]
         return {"id": base, "img": img, "path": img_path}
 
-    # 1) Try metadata ordering
+    # Try to load tiles using metadata ordering first
     if isinstance(meta, dict) and "tile_filenames" in meta:
         ordered = []
         for fn in meta["tile_filenames"]:
@@ -55,7 +47,7 @@ def load_tiles_from_phase1(source_root: str, category: str, identifier: str) -> 
         if len(ordered) > 0:
             return ordered
 
-    # 2) Try numeric pattern tile_{r}_{c}.png
+    # Fall back to numeric pattern matching (tile_r_c.png)
     all_pngs = sorted([f for f in os.listdir(resource_dir) if f.lower().endswith(".png")])
     numeric_pattern = re.compile(r"tile_(\d+)_(\d+)\.png$", flags=re.IGNORECASE)
     
@@ -78,5 +70,3 @@ def load_tiles_from_phase1(source_root: str, category: str, identifier: str) -> 
             return loaded
 
     raise RuntimeError(f"No tiles found in {resource_dir}")
-
-

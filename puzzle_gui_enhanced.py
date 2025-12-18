@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""
-Enhanced Puzzle Solver GUI with smart iteration and dynamic loading.
-Iterates through puzzles in order: image 0 (2x2, 4x4, 8x8), image 1 (2x2, 4x4, 8x8), etc.
-Shows "Loading..." for images that don't exist yet.
-"""
+# Enhanced Puzzle Solver GUI with dynamic puzzle iteration and live image loading
 
 import tkinter as tk
 from tkinter import ttk
@@ -26,14 +22,14 @@ class EnhancedPuzzleGUI:
         self.root.title("Puzzle Solver - Visual Inspector")
         self.root.geometry("1400x900")
         
-        # Data
-        self.puzzles = []  # List of (group, image_id) tuples in smart order
+        # Store puzzle data
+        self.puzzles = []
         self.current_idx = 0
         self.phase1_root = "phase1_outputs"
         self.out_dir = "phase2_outputs"
         self.groups_order = ["puzzle_2x2", "puzzle_4x4", "puzzle_8x8"]
         
-        # State
+        # Track solver state
         self.solving = False
         self.current_tiles = None
         self.current_result = None
@@ -42,8 +38,7 @@ class EnhancedPuzzleGUI:
         self.scan_puzzles()
         
     def setup_ui(self):
-        """Create the main UI layout."""
-        # Top control panel
+        # Create UI elements: controls, canvas, info display
         control_frame = ttk.Frame(self.root)
         control_frame.pack(side=tk.TOP, fill=tk.X, padx=10, pady=10)
         
@@ -52,7 +47,7 @@ class EnhancedPuzzleGUI:
         self.status_label = ttk.Label(control_frame, text="Ready", relief=tk.SUNKEN)
         self.status_label.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
 
-        # Jump-to controls (top-right area)
+        # Jump-to controls
         self.counter_label = ttk.Label(control_frame, text="0/0")
         self.counter_label.pack(side=tk.RIGHT, padx=5)
 
@@ -68,25 +63,25 @@ class EnhancedPuzzleGUI:
         grid_box.pack(side=tk.RIGHT, padx=5)
         ttk.Label(control_frame, text="Grid:").pack(side=tk.RIGHT)
         
-        # Main content area
+        # Main display area
         content_frame = ttk.Frame(self.root)
         content_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
-        # Left side - Before (Original Tiles)
+        # Before image (original tiles)
         left_frame = ttk.LabelFrame(content_frame, text="Before: Original Tiles", padding=10)
         left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5)
         
         self.canvas_before = tk.Canvas(left_frame, bg='gray20', width=500, height=500)
         self.canvas_before.pack(fill=tk.BOTH, expand=True)
         
-        # Right side - After (Solved Puzzle)
+        # After image (solved puzzle)
         right_frame = ttk.LabelFrame(content_frame, text="After: Solved Puzzle", padding=10)
         right_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5)
         
         self.canvas_after = tk.Canvas(right_frame, bg='gray20', width=500, height=500)
         self.canvas_after.pack(fill=tk.BOTH, expand=True)
         
-        # Bottom info panel
+        # Info display
         info_frame = ttk.LabelFrame(self.root, text="Puzzle Info", padding=10)
         info_frame.pack(fill=tk.X, padx=10, pady=5)
         
@@ -102,17 +97,14 @@ class EnhancedPuzzleGUI:
         ttk.Button(nav_frame, text="Resolve (redo)", command=self.resolve_current).pack(side=tk.LEFT, padx=5)
         
     def scan_puzzles(self):
-        """
-        Scan for available puzzles and organize them in smart order:
-        Image 0 (2x2, 4x4, 8x8), Image 1 (2x2, 4x4, 8x8), etc.
-        """
+        # Scan directory and organize puzzles by image ID, then grid size
         self.puzzles = []
         
         if not os.path.isdir(self.phase1_root):
             self.update_status(f"Phase 1 outputs not found: {self.phase1_root}")
             return
         
-        # First, collect all available images
+        # Collect available images grouped by puzzle type
         images_by_group = {}
         
         for group_dir in sorted(os.listdir(self.phase1_root)):
@@ -128,17 +120,17 @@ class EnhancedPuzzleGUI:
                 if os.path.isdir(tiles_dir):
                     images_by_group[group_dir].append(item)
         
-        # Now organize by image number first, then by group
+        # Organize by image number first, then by grid type
         groups_order = self.groups_order
         
-        # Find max image ID
+        # Find maximum image ID
         max_image_id = 0
         for images in images_by_group.values():
             for img_id in images:
                 if img_id.isdigit():
                     max_image_id = max(max_image_id, int(img_id))
         
-        # Build puzzle list in desired order
+        # Build puzzle list in display order
         for image_id in range(max_image_id + 1):
             for group in groups_order:
                 if group in images_by_group:
@@ -153,7 +145,7 @@ class EnhancedPuzzleGUI:
             self.update_status("No puzzles found")
     
     def display_puzzle(self):
-        """Display the current puzzle (before and after)."""
+        # Load and display current puzzle (before and after images)
         if not self.puzzles or self.current_idx >= len(self.puzzles):
             return
         
@@ -162,19 +154,18 @@ class EnhancedPuzzleGUI:
         self.root.update()
         
         try:
-            # Try to load tiles
+            # Try loading original tiles from Phase 1
             try:
                 self.current_tiles = load_tiles_from_phase1(self.phase1_root, group, image_id)
                 self.show_before_image()
             except:
-                # If Phase 1 hasn't run yet, show loading
                 self.show_loading_image(self.canvas_before, "Loading tiles...")
                 self.current_tiles = None
             
-            # Try to load solved image
+            # Try loading solved image from Phase 2
             self.show_after_image(group, image_id)
             
-            # Update info
+            # Update information display
             self.update_info(group, image_id)
             self.update_counter()
             self.update_status(f"Puzzle {group}/{image_id} loaded")
@@ -185,10 +176,10 @@ class EnhancedPuzzleGUI:
             self.canvas_after.delete("all")
     
     def show_before_image(self):
-        """Display original image from dataset as 'before' image."""
+        # Display original puzzle image from dataset
         group, image_id = self.puzzles[self.current_idx]
         
-        # Map group name to dataset folder
+        # Map group to dataset folder
         if '2x2' in group:
             dataset_folder = "puzzle_2x2"
         elif '4x4' in group:
@@ -199,7 +190,7 @@ class EnhancedPuzzleGUI:
             self.show_loading_image(self.canvas_before, "Unknown puzzle type")
             return
         
-        # Try to load original image from dataset
+        # Load original image from dataset
         original_path = os.path.join("dataset_images", dataset_folder, f"{image_id}.jpg")
         
         if os.path.exists(original_path):
@@ -208,11 +199,11 @@ class EnhancedPuzzleGUI:
                 self.show_image_on_canvas(self.canvas_before, img)
                 return
         
-        # If original image not found, show loading
+        # If not found, show placeholder
         self.show_loading_image(self.canvas_before, "Loading original image...")
     
     def show_after_image(self, group: str, image_id: str):
-        """Display solved image as 'after' image."""
+        # Display solved puzzle image if available
         solved_path = os.path.join(self.out_dir, group, f"{image_id}.png")
         
         if os.path.exists(solved_path):
@@ -222,12 +213,12 @@ class EnhancedPuzzleGUI:
                 self.current_result = img
                 return
         
-        # No solved image yet, show loading placeholder
+        # No solution yet, show placeholder
         self.show_loading_image(self.canvas_after, "Loading solution...")
         self.current_result = None
     
     def show_loading_image(self, canvas, text: str):
-        """Show a loading message on canvas."""
+        # Display loading placeholder on canvas
         canvas.delete("all")
         w = canvas.winfo_width()
         h = canvas.winfo_height()
@@ -244,8 +235,7 @@ class EnhancedPuzzleGUI:
         self.show_image_on_canvas(canvas, blank)
     
     def show_image_on_canvas(self, canvas, cv_image):
-        """Display OpenCV image on tkinter canvas."""
-        # Resize to fit canvas
+        # Resize and display image on tkinter canvas
         canvas_w = canvas.winfo_width()
         canvas_h = canvas.winfo_height()
         
@@ -255,7 +245,7 @@ class EnhancedPuzzleGUI:
             canvas_h = 600
         
         h, w = cv_image.shape[:2]
-        # Fill the box almost fully; allow gentle upscaling
+        # Scale to fit canvas
         scale = min(canvas_w / w, canvas_h / h) * 0.98
         new_w = max(1, int(w * scale))
         new_h = max(1, int(h * scale))
@@ -271,7 +261,7 @@ class EnhancedPuzzleGUI:
         canvas.image = photo
     
     def update_info(self, group: str, image_id: str):
-        """Update puzzle information display."""
+        # Update puzzle information display
         self.info_text.delete(1.0, tk.END)
         
         # Determine grid size
@@ -305,19 +295,19 @@ class EnhancedPuzzleGUI:
         self.info_text.insert(tk.END, info)
     
     def update_counter(self):
-        """Update puzzle counter."""
+        # Update puzzle position counter
         if self.puzzles:
             self.counter_label.config(
                 text=f"{self.current_idx + 1}/{len(self.puzzles)}"
             )
     
     def update_status(self, message: str):
-        """Update status bar."""
+        # Update status bar message
         self.status_label.config(text=message)
         self.root.update_idletasks()
     
     def solve_current(self):
-        """Solve the current puzzle in a separate thread."""
+        # Solve current puzzle in background thread
         if self.solving:
             self.update_status("Already solving...")
             return
@@ -326,13 +316,13 @@ class EnhancedPuzzleGUI:
             self.update_status("Tiles not loaded yet, please wait...")
             return
         
-        # Start solving in background thread
+        # Start solver in background
         thread = threading.Thread(target=self._solve_worker)
         thread.daemon = True
         thread.start()
 
     def goto_puzzle(self):
-        """Jump to a specific puzzle by grid and image id."""
+        # Jump to specific puzzle by grid and image ID
         target_group = self.grid_var.get()
         target_image = self.image_var.get().strip()
         if not target_image:
@@ -345,7 +335,7 @@ class EnhancedPuzzleGUI:
         self.update_status(f"Not found: {target_group}/{target_image}")
     
     def _solve_worker(self):
-        """Worker thread for solving puzzle."""
+        # Worker thread for solving puzzle and saving result
         try:
             self.solving = True
             group, image_id = self.puzzles[self.current_idx]
@@ -361,7 +351,7 @@ class EnhancedPuzzleGUI:
             else:
                 grid_n = int(np.sqrt(len(self.current_tiles)))
             
-            # Solve
+            # Solve puzzle
             tile_imgs = [t['img'] for t in self.current_tiles]
             solver = PuzzleSolver(self.current_tiles, grid_n, grid_n)
             result = solver.solve(time_limit=120.0)
@@ -371,10 +361,9 @@ class EnhancedPuzzleGUI:
                 self.solving = False
                 return
             
-            # Save result
+            # Assemble and save result
             placement = result['placement_map']
             
-            # Assemble image
             tile_h, tile_w = tile_imgs[0].shape[:2]
             canvas = np.zeros((grid_n * tile_h, grid_n * tile_w, 3), dtype=np.uint8)
             
@@ -394,13 +383,13 @@ class EnhancedPuzzleGUI:
                             x_start = c * tile_w
                             canvas[y_start:y_start+tile_h, x_start:x_start+tile_w] = tile_img
             
-            # Save assembled image
+            # Save assembled puzzle
             out_path = os.path.join(self.out_dir, group)
             os.makedirs(out_path, exist_ok=True)
             assembled_path = os.path.join(out_path, f"{image_id}.png")
             cv2.imwrite(assembled_path, canvas)
             
-            # Store result
+            # Update current state
             self.current_result = canvas
             
             score = result.get('score', 0.0)
@@ -419,7 +408,7 @@ class EnhancedPuzzleGUI:
             self.solving = False
     
     def resolve_current(self):
-        """Delete current solved image and re-run solver for this puzzle."""
+        # Delete and re-solve current puzzle
         if not self.puzzles:
             return
         if self.solving:
@@ -432,19 +421,19 @@ class EnhancedPuzzleGUI:
                 os.remove(solved_path)
         except Exception as e:
             self.update_status(f"Could not delete old result: {e}")
-        # reset display state
+        # Reset state
         self.current_result = None
         self.show_loading_image(self.canvas_after, "Re-solving...")
         self.solve_current()
     
     def next_puzzle(self):
-        """Move to next puzzle."""
+        # Navigate to next puzzle
         if self.puzzles:
             self.current_idx = (self.current_idx + 1) % len(self.puzzles)
             self.display_puzzle()
     
     def previous_puzzle(self):
-        """Move to previous puzzle."""
+        # Navigate to previous puzzle
         if self.puzzles:
             self.current_idx = (self.current_idx - 1) % len(self.puzzles)
             self.display_puzzle()
