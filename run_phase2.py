@@ -146,7 +146,7 @@ def main():
     args = parse_args()
     
     print("=" * 70)
-    print("Phase 2: Contour-Based Puzzle Solver")
+    print("Phase 2: Best Buddies Puzzle Solver")
     print("=" * 70)
     
     tasks = [
