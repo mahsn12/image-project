@@ -33,10 +33,11 @@ This will:
 ### Setup and run (Bash)
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
+python -m venv .venv
+& .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 python run_all.py
+
 
 ## Data Layout
 - Input images live under `dataset_images/`, grouped by folders that include `2x2`, `4x4`, or `8x8` in their name (e.g., `puzzle_4x4/0/*.png`).
