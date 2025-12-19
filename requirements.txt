@@ -1,4 +1,4 @@
-opencv-contrib-python>=4.8,<5
-numpy>=1.24,<2.1
-pytest>=7.4,<8
-Pillow>=9.0,<10
+opencv-contrib-python
+numpy
+pytest
+Pillow
