@@ -29,12 +29,14 @@ This will:
 - ✓ Shows "Loading..." for images being processed
 - ✓ Click Next/Previous to browse while data is being generated
 
-## Setup
-1. Install Python 3.10+.
-2. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
+
+### Setup and run (Bash)
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python run_all.py
 
 ## Data Layout
 - Input images live under `dataset_images/`, grouped by folders that include `2x2`, `4x4`, or `8x8` in their name (e.g., `puzzle_4x4/0/*.png`).

@@ -12,12 +12,10 @@ def smart_enhance(img: np.ndarray, tile_size: int = None) -> np.ndarray:
     if tile_size is not None:
         scale = tile_size / 112.0
         d_bilateral = max(3, int(9 * scale))
-        clahe_grid_size = max(2, int(8 * scale))
         guided_radius = max(2, int(8 * scale))
         bilateral_fallback_d = max(3, int(7 * scale))
     else:
         d_bilateral = 9
-        clahe_grid_size = 8
         guided_radius = 8
         bilateral_fallback_d = 7
 
